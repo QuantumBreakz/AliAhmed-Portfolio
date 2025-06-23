@@ -25,13 +25,13 @@ const Landing = ({ children }: PropsWithChildren) => {
               <div className="landing-h2-info-1">Software Engineer</div>
             </h2>
           </div>
-          <div className="profile-picture-container">
+          {/* <div className="profile-picture-container">
             <img 
               src="/profilepic.jpg" 
               alt="Ali Ahmed" 
               className="profile-picture"
             />
-          </div>
+          </div> */}
         </div>
         {children}
       </div>
