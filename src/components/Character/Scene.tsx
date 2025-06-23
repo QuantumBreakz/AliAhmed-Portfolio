@@ -26,7 +26,10 @@ const Scene = () => {
     // Mobile detection
     const mobile = window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
     setIsMobile(mobile);
-    if (!canvasDiv.current || mobile) return;
+    if (!canvasDiv.current || mobile) {
+      setLoading(100); // Immediately finish loading on mobile
+      return;
+    }
     let rect = canvasDiv.current.getBoundingClientRect();
     let container = { width: rect.width, height: rect.height };
     const aspect = container.width / container.height;
