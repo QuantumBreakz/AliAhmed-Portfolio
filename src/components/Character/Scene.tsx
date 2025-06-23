@@ -151,11 +151,8 @@ const Scene = () => {
       }
     };
 
-    // Wait for both model and environment map
+    // Wait for environment map
     let envMapLoaded = false;
-    let modelLoaded = false;
-    let envMapError = false;
-    let modelError = false;
 
     // Only load 3D character on all devices, with error handling
     (async () => {
@@ -163,7 +160,7 @@ const Scene = () => {
         // Patch setCharacter to accept onProgress
         const gltf = await loadCharacter(onProgress);
         if (gltf) {
-          modelLoaded = true;
+          envMapLoaded = true;
           setLoadingPercent(90);
           setLoading(90);
           const animations = setAnimations(gltf);
@@ -193,8 +190,6 @@ const Scene = () => {
             }, 100);
             setTimeout(() => {
               if (!envMapLoaded) {
-                envMapError = true;
-                clearInterval(checkEnvMap);
                 setLoadError("Environment map failed to load. Try again or use a different device.");
                 setLoading(100);
                 setIsLoading(false);
