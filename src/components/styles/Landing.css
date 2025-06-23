@@ -379,3 +379,22 @@ h2.landing-info-h2 {
     font-size: 75px;
   }
 }
+@media screen and (max-width: 600px) {
+  .landing-info-h2, .landing-h2-info, .landing-h2-info-1 {
+    font-size: 1.1rem;
+    line-height: 1.4;
+    margin-bottom: 0.5em;
+  }
+  .landing-info {
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+  }
+  .landing-intro h1, .landing-intro h2 {
+    font-size: 1.2rem;
+    line-height: 1.2;
+  }
+  .landing-info h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5em;
+  }
+}

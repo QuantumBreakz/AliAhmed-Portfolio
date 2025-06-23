@@ -28,6 +28,7 @@ const Scene = () => {
   const [loadingPercent, setLoadingPercent] = useState<number>(0);
   const [retryCount, setRetryCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [slowLoading, setSlowLoading] = useState(false);
 
   // Retry handler
   const handleRetry = useCallback(() => {
@@ -35,6 +36,7 @@ const Scene = () => {
     setLoadingPercent(0);
     setIsLoading(true);
     setRetryCount((c) => c + 1);
+    setSlowLoading(false);
   }, []);
 
   useEffect(() => {
@@ -62,9 +64,9 @@ const Scene = () => {
     renderer.toneMappingExposure = 1;
     canvasDiv.current.appendChild(renderer.domElement);
 
-    // WebGL support check
+    // WebGL2 support check
     if (!renderer.capabilities.isWebGL2) {
-      setLoadError("WebGL2 is not supported on this device/browser.");
+      setLoadError("3D rendering is not supported on this device/browser. Please use a modern browser with WebGL2 support.");
       setLoading(100);
       setIsLoading(false);
       return;
@@ -124,6 +126,11 @@ const Scene = () => {
       });
     };
 
+    // Show a slow loading warning after 10 seconds
+    const slowLoadingTimeout = setTimeout(() => {
+      setSlowLoading(true);
+    }, 10000);
+
     // Loading timeout fallback
     const loadingTimeout = setTimeout(() => {
       setLoadError("3D model failed to load in time. Please try again or use a different device.");
@@ -144,16 +151,21 @@ const Scene = () => {
       }
     };
 
+    // Wait for both model and environment map
+    let envMapLoaded = false;
+    let modelLoaded = false;
+    let envMapError = false;
+    let modelError = false;
+
     // Only load 3D character on all devices, with error handling
     (async () => {
       try {
         // Patch setCharacter to accept onProgress
         const gltf = await loadCharacter(onProgress);
         if (gltf) {
-          clearTimeout(loadingTimeout);
-          setLoadingPercent(100);
-          setLoading(100);
-          setIsLoading(false);
+          modelLoaded = true;
+          setLoadingPercent(90);
+          setLoading(90);
           const animations = setAnimations(gltf);
           if (hoverDivRef.current) {
             animationCleanup = animations.hover(gltf, hoverDivRef.current);
@@ -165,16 +177,46 @@ const Scene = () => {
           scene.add(character);
           headBone = character.getObjectByName("spine006") || null;
           screenLight = character.getObjectByName("screenlight") || null;
+          // Wait for environment map to load
           if (scene.environment && scene.environment instanceof THREE.Texture) {
             envMap = scene.environment;
-          }
-          progress.loaded().then(() => {
+            envMapLoaded = true;
+          } else {
+            // Wait for environment map to be set by setLighting
+            let checkEnvMap = setInterval(() => {
+              if (scene.environment && scene.environment instanceof THREE.Texture) {
+                envMap = scene.environment;
+                envMapLoaded = true;
+                clearInterval(checkEnvMap);
+                finishLoading();
+              }
+            }, 100);
             setTimeout(() => {
-              light.turnOnLights();
-              animations.startIntro();
-            }, 2500);
-          });
-          window.addEventListener("resize", onResize);
+              if (!envMapLoaded) {
+                envMapError = true;
+                clearInterval(checkEnvMap);
+                setLoadError("Environment map failed to load. Try again or use a different device.");
+                setLoading(100);
+                setIsLoading(false);
+              }
+            }, 5000);
+          }
+          // If envMap already loaded, finish loading
+          if (envMapLoaded) finishLoading();
+          function finishLoading() {
+            clearTimeout(loadingTimeout);
+            clearTimeout(slowLoadingTimeout);
+            setLoadingPercent(100);
+            setLoading(100);
+            setIsLoading(false);
+            progress.loaded().then(() => {
+              setTimeout(() => {
+                light.turnOnLights();
+                animations.startIntro();
+              }, 2500);
+            });
+            window.addEventListener("resize", onResize);
+          }
         } else {
           clearTimeout(loadingTimeout);
           setLoadError("3D model could not be loaded. Try again or use a different device.");
@@ -239,6 +281,7 @@ const Scene = () => {
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (animationCleanup) animationCleanup();
       clearTimeout(loadingTimeout);
+      clearTimeout(slowLoadingTimeout);
       // Remove event listeners
       document.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("resize", onResize);
@@ -310,6 +353,7 @@ const Scene = () => {
         <div className="spinner" style={{ margin: '40px auto', width: 48, height: 48, border: '6px solid #c2a4ff', borderTop: '6px solid #0b080c', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
         <div style={{ color: "#c2a4ff", marginTop: 16, fontSize: 18 }}>Loading 3D Model... {loadingPercent}%</div>
         {isMobile && <div style={{ color: '#fff', marginTop: 8, fontSize: 14 }}>Loading may take longer on mobile devices.</div>}
+        {slowLoading && <div style={{ color: '#ffb347', marginTop: 8, fontSize: 14 }}>Loading is taking longer than usual. Please wait...</div>}
         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       </div>
     );
