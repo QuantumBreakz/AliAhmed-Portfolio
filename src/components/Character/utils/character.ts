@@ -13,7 +13,7 @@ const setCharacter = (
   dracoLoader.setDecoderPath("/draco/");
   loader.setDRACOLoader(dracoLoader);
 
-  const loadCharacter = () => {
+  const loadCharacter = (onProgress?: (event: ProgressEvent<EventTarget>) => void) => {
     return new Promise<GLTF | null>(async (resolve, reject) => {
       try {
         const encryptedBlob = await decryptFile(
@@ -43,7 +43,7 @@ const setCharacter = (
             character!.getObjectByName("footL")!.position.y = 3.36;
             dracoLoader.dispose();
           },
-          undefined,
+          onProgress,
           (error) => {
             console.error("Error loading GLTF model:", error);
             reject(error);

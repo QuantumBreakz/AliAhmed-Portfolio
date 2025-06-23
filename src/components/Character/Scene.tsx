@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import setCharacter from "./utils/character";
 import setLighting from "./utils/lighting";
@@ -14,6 +14,8 @@ import setAnimations from "./utils/animationUtils";
 import { setProgress } from "../Loading";
 import fallbackImg from "../../assets/react.svg"; // Use a static image as fallback for mobile
 
+const LOADING_TIMEOUT = 20000; // 20 seconds
+
 const Scene = () => {
   const canvasDiv = useRef<HTMLDivElement | null>(null);
   const hoverDivRef = useRef<HTMLDivElement>(null);
@@ -22,12 +24,26 @@ const Scene = () => {
 
   const [character, setChar] = useState<THREE.Object3D | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadingPercent, setLoadingPercent] = useState<number>(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Retry handler
+  const handleRetry = useCallback(() => {
+    setLoadError(null);
+    setLoadingPercent(0);
+    setIsLoading(true);
+    setRetryCount((c) => c + 1);
+  }, []);
+
   useEffect(() => {
     // Mobile detection
     const mobile = window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
     setIsMobile(mobile);
     if (!canvasDiv.current) {
-      setLoading(100); // Defensive: finish loading if no canvas
+      setLoading(100);
+      setIsLoading(false);
       return;
     }
     let rect = canvasDiv.current.getBoundingClientRect();
@@ -38,13 +54,21 @@ const Scene = () => {
     // Lower pixel ratio for mobile
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
-      antialias: !mobile, // disable antialias on mobile for perf
+      antialias: !mobile,
     });
     renderer.setSize(container.width, container.height);
     renderer.setPixelRatio(mobile ? 1 : window.devicePixelRatio);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
     canvasDiv.current.appendChild(renderer.domElement);
+
+    // WebGL support check
+    if (!renderer.capabilities.isWebGL2) {
+      setLoadError("WebGL2 is not supported on this device/browser.");
+      setLoading(100);
+      setIsLoading(false);
+      return;
+    }
 
     const camera = new THREE.PerspectiveCamera(14.5, aspect, 0.1, 1000);
     camera.position.z = 10;
@@ -74,7 +98,7 @@ const Scene = () => {
     let lastMouseMove = 0;
     const onMouseMove = (event: MouseEvent) => {
       const now = Date.now();
-      if (now - lastMouseMove > 16) { // ~60fps
+      if (now - lastMouseMove > 16) {
         handleMouseMove(event, (x, y) => (mouse = { x, y }));
         lastMouseMove = now;
       }
@@ -100,11 +124,36 @@ const Scene = () => {
       });
     };
 
-    // Only load 3D character on non-mobile
+    // Loading timeout fallback
+    const loadingTimeout = setTimeout(() => {
+      setLoadError("3D model failed to load in time. Please try again or use a different device.");
+      setLoading(100);
+      setIsLoading(false);
+    }, LOADING_TIMEOUT);
+
+    // Real progress update using GLTFLoader
+    let lastProgress = 0;
+    const onProgress = (xhr: ProgressEvent<EventTarget>) => {
+      if (xhr.lengthComputable) {
+        const percent = Math.round((xhr.loaded / xhr.total) * 100);
+        if (percent > lastProgress) {
+          setLoadingPercent(percent);
+          setLoading(percent);
+          lastProgress = percent;
+        }
+      }
+    };
+
+    // Only load 3D character on all devices, with error handling
     (async () => {
       try {
-        const gltf = await loadCharacter();
+        // Patch setCharacter to accept onProgress
+        const gltf = await loadCharacter(onProgress);
         if (gltf) {
+          clearTimeout(loadingTimeout);
+          setLoadingPercent(100);
+          setLoading(100);
+          setIsLoading(false);
           const animations = setAnimations(gltf);
           if (hoverDivRef.current) {
             animationCleanup = animations.hover(gltf, hoverDivRef.current);
@@ -116,7 +165,6 @@ const Scene = () => {
           scene.add(character);
           headBone = character.getObjectByName("spine006") || null;
           screenLight = character.getObjectByName("screenlight") || null;
-          // Try to get environment map for later disposal
           if (scene.environment && scene.environment instanceof THREE.Texture) {
             envMap = scene.environment;
           }
@@ -127,10 +175,18 @@ const Scene = () => {
             }, 2500);
           });
           window.addEventListener("resize", onResize);
+        } else {
+          clearTimeout(loadingTimeout);
+          setLoadError("3D model could not be loaded. Try again or use a different device.");
+          setLoading(100);
+          setIsLoading(false);
         }
       } catch (err) {
-        // Optionally show error UI
+        clearTimeout(loadingTimeout);
         setChar(null);
+        setLoadError("3D model failed to load. Please try again or use a different device.");
+        setLoading(100);
+        setIsLoading(false);
         // eslint-disable-next-line no-console
         console.error("Failed to load 3D character:", err);
       }
@@ -182,6 +238,7 @@ const Scene = () => {
       if (debounce) clearTimeout(debounce);
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (animationCleanup) animationCleanup();
+      clearTimeout(loadingTimeout);
       // Remove event listeners
       document.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("resize", onResize);
@@ -214,8 +271,6 @@ const Scene = () => {
         });
       }
       if (mixer) {
-        // Dispose animation mixer
-        // (no explicit dispose, but remove all actions)
         mixer.uncacheRoot(gltfScene as any);
       }
       if (envMap) {
@@ -223,7 +278,6 @@ const Scene = () => {
       }
       if (renderer) {
         renderer.dispose();
-        // Also try to force context loss for mobile GPU leaks
         if (renderer.domElement) {
           const gl = renderer.getContext();
           if (gl && gl.getExtension) {
@@ -232,10 +286,34 @@ const Scene = () => {
           }
         }
       }
-      // Remove all children from scene
       scene.clear();
     };
-  }, []);
+  }, [retryCount]);
+
+  // Show error/fallback if loading failed
+  if (loadError) {
+    return (
+      <div className="character-container" style={{ textAlign: "center", padding: 32 }}>
+        <div style={{ color: "#c2a4ff", marginTop: 16, fontSize: 18 }}>{loadError}</div>
+        <button style={{ marginTop: 24, padding: '8px 24px', fontSize: 16, background: '#c2a4ff', color: '#0b080c', border: 'none', borderRadius: 8, cursor: 'pointer' }} onClick={handleRetry}>Retry</button>
+        <div style={{ marginTop: 32 }}>
+          <img src={fallbackImg} alt="3D character fallback" style={{ width: 120, height: 120, opacity: 0.7 }} />
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading spinner and progress
+  if (isLoading) {
+    return (
+      <div className="character-container" style={{ textAlign: "center", padding: 32 }}>
+        <div className="spinner" style={{ margin: '40px auto', width: 48, height: 48, border: '6px solid #c2a4ff', borderTop: '6px solid #0b080c', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <div style={{ color: "#c2a4ff", marginTop: 16, fontSize: 18 }}>Loading 3D Model... {loadingPercent}%</div>
+        {isMobile && <div style={{ color: '#fff', marginTop: 8, fontSize: 14 }}>Loading may take longer on mobile devices.</div>}
+        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   return (
     <>
