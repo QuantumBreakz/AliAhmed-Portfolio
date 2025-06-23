@@ -26,8 +26,8 @@ const Scene = () => {
     // Mobile detection
     const mobile = window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
     setIsMobile(mobile);
-    if (!canvasDiv.current || mobile) {
-      setLoading(100); // Immediately finish loading on mobile
+    if (!canvasDiv.current) {
+      setLoading(100); // Defensive: finish loading if no canvas
       return;
     }
     let rect = canvasDiv.current.getBoundingClientRect();
@@ -236,16 +236,6 @@ const Scene = () => {
       scene.clear();
     };
   }, []);
-
-  // Fallback for mobile: show static image or message
-  if (isMobile) {
-    return (
-      <div className="character-container" style={{ textAlign: "center", padding: 32 }}>
-        <img src={fallbackImg} alt="3D character fallback" style={{ width: 120, height: 120, opacity: 0.7 }} />
-        <div style={{ color: "#c2a4ff", marginTop: 16, fontSize: 18 }}>3D character is disabled on mobile for performance.</div>
-      </div>
-    );
-  }
 
   return (
     <>
