@@ -14,7 +14,7 @@ export function setCharTimeline(
       trigger: ".landing-section",
       start: "top top",
       end: "bottom top",
-      scrub: true,
+      scrub: 1.5,
       invalidateOnRefresh: true,
     },
   });
@@ -23,7 +23,7 @@ export function setCharTimeline(
       trigger: ".about-section",
       start: "center 55%",
       end: "bottom top",
-      scrub: true,
+      scrub: 1.5,
       invalidateOnRefresh: true,
     },
   });
@@ -32,7 +32,7 @@ export function setCharTimeline(
       trigger: ".whatIDO",
       start: "top top",
       end: "bottom top",
-      scrub: true,
+      scrub: 1.5,
       invalidateOnRefresh: true,
     },
   });
@@ -162,7 +162,7 @@ export function setAllTimeline() {
       trigger: ".career-section",
       start: "top 30%",
       end: "100% center",
-      scrub: true,
+      scrub: 1.5,
       invalidateOnRefresh: true,
     },
   });
