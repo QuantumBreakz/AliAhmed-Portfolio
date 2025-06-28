@@ -120,13 +120,37 @@ export function setCharTimeline(
     }
   } else {
     if (character) {
+      // Mobile ScrollTrigger for what-box-in
       const tM2 = gsap.timeline({
         scrollTrigger: {
-          trigger: ".what-box-in",
-          start: "top 70%",
+          trigger: ".whatIDO",
+          start: "top 80%",
           end: "bottom top",
+          onEnter: () => {
+            // Ensure what-box-in is visible on mobile
+            const whatBoxIn = document.querySelector('.what-box-in') as HTMLElement;
+            if (whatBoxIn) {
+              whatBoxIn.style.display = 'flex';
+            }
+          },
+          onEnterBack: () => {
+            // Keep visible when scrolling back up
+            const whatBoxIn = document.querySelector('.what-box-in') as HTMLElement;
+            if (whatBoxIn) {
+              whatBoxIn.style.display = 'flex';
+            }
+          }
         },
       });
+      
+      // Fallback: Show what-box-in immediately if it's not visible after a delay
+      setTimeout(() => {
+        const whatBoxIn = document.querySelector('.what-box-in') as HTMLElement;
+        if (whatBoxIn && whatBoxIn.style.display === 'none') {
+          whatBoxIn.style.display = 'flex';
+        }
+      }, 1000);
+      
       tM2.to(".what-box-in", { display: "flex", duration: 0.1, delay: 0 }, 0);
     }
   }

@@ -4,10 +4,51 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 const WhatIDo = () => {
   const containerRef = useRef<(HTMLDivElement | null)[]>([]);
+  const whatBoxInRef = useRef<HTMLDivElement>(null);
+  
   const setRef = (el: HTMLDivElement | null, index: number) => {
     containerRef.current[index] = el;
   };
+  
   useEffect(() => {
+    // Mobile detection
+    const isMobile = window.innerWidth <= 1024;
+    
+    if (isMobile) {
+      // Ensure what-box-in is visible on mobile
+      const ensureMobileVisibility = () => {
+        if (whatBoxInRef.current) {
+          whatBoxInRef.current.style.display = 'flex';
+        }
+      };
+      
+      // Check immediately
+      ensureMobileVisibility();
+      
+      // Check after a short delay to ensure GSAP has run
+      setTimeout(ensureMobileVisibility, 500);
+      
+      // Check when scrolling to the section
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && whatBoxInRef.current) {
+              whatBoxInRef.current.style.display = 'flex';
+            }
+          });
+        },
+        { threshold: 0.1 }
+      );
+      
+      if (whatBoxInRef.current) {
+        observer.observe(whatBoxInRef.current);
+      }
+      
+      return () => {
+        observer.disconnect();
+      };
+    }
+    
     if (ScrollTrigger.isTouch) {
       containerRef.current.forEach((container) => {
         if (container) {
@@ -24,6 +65,7 @@ const WhatIDo = () => {
       });
     };
   }, []);
+  
   return (
     <div className="whatIDO">
       <div className="what-box">
@@ -35,7 +77,7 @@ const WhatIDo = () => {
         </h2>
       </div>
       <div className="what-box">
-        <div className="what-box-in">
+        <div className="what-box-in" ref={whatBoxInRef}>
           <div className="what-border2">
             <svg width="100%">
               <line
