@@ -12,7 +12,6 @@ import {
 } from "./utils/mouseUtils";
 import setAnimations from "./utils/animationUtils";
 import { setProgress } from "../Loading";
-import fallbackImg from "../../assets/react.svg"; // Use a static image as fallback for mobile
 
 const LOADING_TIMEOUT = 20000; // 20 seconds
 
@@ -23,7 +22,7 @@ const Scene = () => {
   const { setLoading } = useLoading();
 
   const [character, setChar] = useState<THREE.Object3D | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  const [webglSupported, setWebglSupported] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingPercent, setLoadingPercent] = useState<number>(0);
   const [retryCount, setRetryCount] = useState(0);
@@ -40,14 +39,41 @@ const Scene = () => {
   }, []);
 
   useEffect(() => {
+    // Check WebGL support first
+    const checkWebGLSupport = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) {
+          console.warn('WebGL not supported, falling back to static content');
+          setWebglSupported(false);
+          setLoading(100); // Complete loading immediately
+          setIsLoading(false);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        console.warn('WebGL check failed:', e);
+        setWebglSupported(false);
+        setLoading(100);
+        setIsLoading(false);
+        return false;
+      }
+    };
+
+    if (!checkWebGLSupport()) {
+      return; // Exit early if WebGL not supported
+    }
+
     // Mobile detection
     const mobile = window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
-    setIsMobile(mobile);
+    
     if (!canvasDiv.current) {
       setLoading(100);
       setIsLoading(false);
       return;
     }
+    
     let rect = canvasDiv.current.getBoundingClientRect();
     let container = { width: rect.width, height: rect.height };
     const aspect = container.width / container.height;
@@ -56,7 +82,8 @@ const Scene = () => {
     // Lower pixel ratio for mobile
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
-      antialias: !mobile,
+      antialias: !mobile, // disable antialias on mobile for perf
+      powerPreference: "high-performance",
     });
     renderer.setSize(container.width, container.height);
     renderer.setPixelRatio(mobile ? 1 : window.devicePixelRatio);
@@ -162,15 +189,11 @@ const Scene = () => {
     // Wait for environment map
     let envMapLoaded = false;
 
-    // Only load 3D character on all devices, with error handling
+    // Load 3D character on all devices that support WebGL
     (async () => {
       try {
-        // Patch setCharacter to accept onProgress
-        const gltf = await loadCharacter(onProgress);
+        const gltf = await loadCharacter();
         if (gltf) {
-          envMapLoaded = true;
-          setLoadingPercent(90);
-          setLoading(90);
           const animations = setAnimations(gltf);
           if (hoverDivRef.current) {
             animationCleanup = animations.hover(gltf, hoverDivRef.current);
@@ -182,58 +205,35 @@ const Scene = () => {
           scene.add(character);
           headBone = character.getObjectByName("spine006") || null;
           screenLight = character.getObjectByName("screenlight") || null;
-          // Wait for environment map to load
+          // Try to get environment map for later disposal
           if (scene.environment && scene.environment instanceof THREE.Texture) {
             envMap = scene.environment;
-            envMapLoaded = true;
-          } else {
-            // Wait for environment map to be set by setLighting
-            let checkEnvMap = setInterval(() => {
-              if (scene.environment && scene.environment instanceof THREE.Texture) {
-                envMap = scene.environment;
-                envMapLoaded = true;
-                clearInterval(checkEnvMap);
-                finishLoading();
-              }
-            }, 100);
-            setTimeout(() => {
-              if (!envMapLoaded) {
-                setLoadError("Environment map failed to load. Try again or use a different device.");
-                setLoading(100);
-                setIsLoading(false);
-              }
-            }, 5000);
           }
-          // If envMap already loaded, finish loading
-          if (envMapLoaded) finishLoading();
-          function finishLoading() {
-            clearTimeout(loadingTimeout);
-            clearTimeout(slowLoadingTimeout);
-            setLoadingPercent(100);
-            setLoading(100);
-            setIsLoading(false);
-            progress.loaded().then(() => {
-              setTimeout(() => {
-                light.turnOnLights();
-                animations.startIntro();
-              }, 2500);
-            });
-            window.addEventListener("resize", onResize);
-          }
-        } else {
+          
+          // Clear timeouts on successful load
+          clearTimeout(slowLoadingTimeout);
           clearTimeout(loadingTimeout);
-          setLoadError("3D model could not be loaded. Try again or use a different device.");
-          setLoading(100);
-          setIsLoading(false);
+          setSlowLoading(false);
+          
+          progress.loaded().then(() => {
+            setTimeout(() => {
+              light.turnOnLights();
+              animations.startIntro();
+              setIsLoading(false);
+            }, 2500);
+          });
+          window.addEventListener("resize", onResize);
         }
       } catch (err) {
-        clearTimeout(loadingTimeout);
+        // Handle loading errors gracefully
         setChar(null);
-        setLoadError("3D model failed to load. Please try again or use a different device.");
+        console.error("Failed to load 3D character:", err);
+        setLoadError("Failed to load 3D character. Please try refreshing the page.");
+        // Complete loading even if 3D fails
         setLoading(100);
         setIsLoading(false);
-        // eslint-disable-next-line no-console
-        console.error("Failed to load 3D character:", err);
+        clearTimeout(slowLoadingTimeout);
+        clearTimeout(loadingTimeout);
       }
     })();
 
@@ -280,11 +280,11 @@ const Scene = () => {
 
     // Cleanup function
     return () => {
+      clearTimeout(slowLoadingTimeout);
+      clearTimeout(loadingTimeout);
       if (debounce) clearTimeout(debounce);
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (animationCleanup) animationCleanup();
-      clearTimeout(loadingTimeout);
-      clearTimeout(slowLoadingTimeout);
       // Remove event listeners
       document.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("resize", onResize);
@@ -317,6 +317,8 @@ const Scene = () => {
         });
       }
       if (mixer) {
+        // Dispose animation mixer
+        // (no explicit dispose, but remove all actions)
         mixer.uncacheRoot(gltfScene as any);
       }
       if (envMap) {
@@ -324,6 +326,7 @@ const Scene = () => {
       }
       if (renderer) {
         renderer.dispose();
+        // Also try to force context loss for mobile GPU leaks
         if (renderer.domElement) {
           const gl = renderer.getContext();
           if (gl && gl.getExtension) {
@@ -332,32 +335,108 @@ const Scene = () => {
           }
         }
       }
+      // Remove all children from scene
       scene.clear();
     };
   }, [retryCount]);
 
-  // Show error/fallback if loading failed
-  if (loadError) {
+  // If WebGL is not supported, show a fallback message
+  if (!webglSupported) {
     return (
-      <div className="character-container" style={{ textAlign: "center", padding: 32 }}>
-        <div style={{ color: "#c2a4ff", marginTop: 16, fontSize: 18 }}>{loadError}</div>
-        <button style={{ marginTop: 24, padding: '8px 24px', fontSize: 16, background: '#c2a4ff', color: '#0b080c', border: 'none', borderRadius: 8, cursor: 'pointer' }} onClick={handleRetry}>Retry</button>
-        <div style={{ marginTop: 32 }}>
-          <img src={fallbackImg} alt="3D character fallback" style={{ width: 120, height: 120, opacity: 0.7 }} />
+      <div className="character-container">
+        <div className="character-model" ref={canvasDiv}>
+          <div className="character-rim"></div>
+          <div className="character-hover" ref={hoverDivRef}></div>
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            color: 'var(--accentColor)',
+            fontSize: '16px',
+            zIndex: 10
+          }}>
+            <div>3D Character</div>
+            <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.7 }}>
+              WebGL not supported on this device
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Show loading spinner and progress
+  // Show error state with retry option
+  if (loadError) {
+    return (
+      <div className="character-container">
+        <div className="character-model" ref={canvasDiv}>
+          <div className="character-rim"></div>
+          <div className="character-hover" ref={hoverDivRef}></div>
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            color: 'var(--accentColor)',
+            fontSize: '14px',
+            zIndex: 10,
+            maxWidth: '300px'
+          }}>
+            <div style={{ marginBottom: '10px' }}>3D Character</div>
+            <div style={{ fontSize: '12px', marginBottom: '15px', opacity: 0.8 }}>
+              {loadError}
+            </div>
+            <button 
+              onClick={handleRetry}
+              style={{
+                background: 'var(--accentColor)',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state
   if (isLoading) {
     return (
-      <div className="character-container" style={{ textAlign: "center", padding: 32 }}>
-        <div className="spinner" style={{ margin: '40px auto', width: 48, height: 48, border: '6px solid #c2a4ff', borderTop: '6px solid #0b080c', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-        <div style={{ color: "#c2a4ff", marginTop: 16, fontSize: 18 }}>Loading 3D Model... {loadingPercent}%</div>
-        {isMobile && <div style={{ color: '#fff', marginTop: 8, fontSize: 14 }}>Loading may take longer on mobile devices.</div>}
-        {slowLoading && <div style={{ color: '#ffb347', marginTop: 8, fontSize: 14 }}>Loading is taking longer than usual. Please wait...</div>}
-        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      <div className="character-container">
+        <div className="character-model" ref={canvasDiv}>
+          <div className="character-rim"></div>
+          <div className="character-hover" ref={hoverDivRef}></div>
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            color: 'var(--accentColor)',
+            fontSize: '14px',
+            zIndex: 10
+          }}>
+            <div style={{ marginBottom: '10px' }}>Loading 3D Character</div>
+            <div style={{ fontSize: '12px', marginBottom: '5px' }}>
+              {loadingPercent}%
+            </div>
+            {slowLoading && (
+              <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '5px' }}>
+                This is taking longer than usual...
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
