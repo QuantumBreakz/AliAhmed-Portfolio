@@ -12,7 +12,6 @@ import {
 } from "./utils/mouseUtils";
 import setAnimations from "./utils/animationUtils";
 import { setProgress } from "../Loading";
-import fallbackImg from "../../assets/react.svg"; // Use a static image as fallback for mobile
 
 const Scene = () => {
   const canvasDiv = useRef<HTMLDivElement | null>(null);
@@ -21,15 +20,41 @@ const Scene = () => {
   const { setLoading } = useLoading();
 
   const [character, setChar] = useState<THREE.Object3D | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  const [webglSupported, setWebglSupported] = useState(true);
+
   useEffect(() => {
+    // Check WebGL support first
+    const checkWebGLSupport = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) {
+          console.warn('WebGL not supported, falling back to static content');
+          setWebglSupported(false);
+          setLoading(100); // Complete loading immediately
+          return false;
+        }
+        return true;
+      } catch (e) {
+        console.warn('WebGL check failed:', e);
+        setWebglSupported(false);
+        setLoading(100);
+        return false;
+      }
+    };
+
+    if (!checkWebGLSupport()) {
+      return; // Exit early if WebGL not supported
+    }
+
     // Mobile detection
     const mobile = window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
-    setIsMobile(mobile);
+    
     if (!canvasDiv.current) {
       setLoading(100); // Defensive: finish loading if no canvas
       return;
     }
+    
     let rect = canvasDiv.current.getBoundingClientRect();
     let container = { width: rect.width, height: rect.height };
     const aspect = container.width / container.height;
@@ -39,6 +64,7 @@ const Scene = () => {
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: !mobile, // disable antialias on mobile for perf
+      powerPreference: "high-performance",
     });
     renderer.setSize(container.width, container.height);
     renderer.setPixelRatio(mobile ? 1 : window.devicePixelRatio);
@@ -100,7 +126,7 @@ const Scene = () => {
       });
     };
 
-    // Only load 3D character on non-mobile
+    // Load 3D character on all devices that support WebGL
     (async () => {
       try {
         const gltf = await loadCharacter();
@@ -129,10 +155,11 @@ const Scene = () => {
           window.addEventListener("resize", onResize);
         }
       } catch (err) {
-        // Optionally show error UI
+        // Handle loading errors gracefully
         setChar(null);
-        // eslint-disable-next-line no-console
         console.error("Failed to load 3D character:", err);
+        // Complete loading even if 3D fails
+        setLoading(100);
       }
     })();
 
@@ -236,6 +263,33 @@ const Scene = () => {
       scene.clear();
     };
   }, []);
+
+  // If WebGL is not supported, show a fallback message
+  if (!webglSupported) {
+    return (
+      <div className="character-container">
+        <div className="character-model" ref={canvasDiv}>
+          <div className="character-rim"></div>
+          <div className="character-hover" ref={hoverDivRef}></div>
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            color: 'var(--accentColor)',
+            fontSize: '16px',
+            zIndex: 10
+          }}>
+            <div>3D Character</div>
+            <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.7 }}>
+              WebGL not supported on this device
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
