@@ -173,22 +173,6 @@ const Scene = () => {
       setIsLoading(false);
     }, LOADING_TIMEOUT);
 
-    // Real progress update using GLTFLoader
-    let lastProgress = 0;
-    const onProgress = (xhr: ProgressEvent<EventTarget>) => {
-      if (xhr.lengthComputable) {
-        const percent = Math.round((xhr.loaded / xhr.total) * 100);
-        if (percent > lastProgress) {
-          setLoadingPercent(percent);
-          setLoading(percent);
-          lastProgress = percent;
-        }
-      }
-    };
-
-    // Wait for environment map
-    let envMapLoaded = false;
-
     // Load 3D character on all devices that support WebGL
     (async () => {
       try {
