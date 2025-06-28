@@ -64,12 +64,20 @@ const Scene = () => {
     renderer.toneMappingExposure = 1;
     canvasDiv.current.appendChild(renderer.domElement);
 
-    // WebGL2 support check
-    if (!renderer.capabilities.isWebGL2) {
-      setLoadError("3D rendering is not supported on this device/browser. Please use a modern browser with WebGL2 support.");
-      setLoading(100);
-      setIsLoading(false);
-      return;
+    // WebGL support check
+    const gl = renderer.getContext();
+    const isWebGL2 = !!gl && typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+    if (!isWebGL2) {
+      // Try to fallback to WebGL1
+      if (!gl || !(gl instanceof WebGLRenderingContext)) {
+        setLoadError("3D rendering is not supported on this device/browser. Please use a modern browser with WebGL support.");
+        setLoading(100);
+        setIsLoading(false);
+        return;
+      } else {
+        // Warn but proceed with WebGL1
+        console.warn("WebGL2 not supported, falling back to WebGL1. Some features may be limited.");
+      }
     }
 
     const camera = new THREE.PerspectiveCamera(14.5, aspect, 0.1, 1000);
